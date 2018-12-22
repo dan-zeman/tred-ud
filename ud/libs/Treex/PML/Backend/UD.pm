@@ -35,23 +35,29 @@ sub read {
             );
         }
 
-        if (/^#\s*sent_id\s=\s*(\S+)/) {
-            my $sent_id = $1;
-            substr $sent_id, 0, 0, 'PML-' if $sent_id =~ /^(?:[0-9]|PML-)/;
-            $root->{id} = $sent_id;
-            $doc->append_tree($root, $doc->lastTreeNo);
 
-        } elsif (/^#\s*text\s*=\s*(.*)/) {
-            $root->{text} = $1;
-
-        } elsif (/^$/) {
+        if (/^$/) {
             _create_structure($root);
             undef $root;
 
-        } elsif (/^#\s+new(doc|par)(?:\s+id = (.*))?/) {
-            $root->{$1} = $2;
-
         } elsif (/^#/) {
+            # Some comments contain metadata and are stored in dedicated variables.
+            # However, we still store their copy in comments as a placeholder,
+            # to be able to preserve the order of comment lines from the original
+            # file (some comments pertain to the whole document and people prefer
+            # to have them before the sentence id).
+            if (/^#\s*sent_id\s=\s*(\S+)/) {
+                my $sent_id = $1;
+                substr $sent_id, 0, 0, 'PML-' if $sent_id =~ /^(?:[0-9]|PML-)/;
+                $root->{id} = $sent_id;
+                $doc->append_tree($root, $doc->lastTreeNo);
+            } elsif (/^#\s*text\s*=\s*(.*)/) {
+                $root->{text} = $1;
+            } elsif (/^#\s*text_en\s*=\s*(.*)/) {
+                $root->{text_en} = $1;
+            } elsif (/^#\s+new(doc|par)(?:\s+id = (.*))?/) {
+                $root->{$1} = $2;
+            }
             $root->{comment} = 'Treex::PML::Factory'->createList([
                 @{ $root->{comment} || [] }, substr $_, 1 ]);
 
@@ -100,12 +106,44 @@ sub read {
 sub write {
     my ($fh, $doc) = @_;
     for my $root ($doc->trees) {
-        _serialize_doc_and_par($root, $fh);
-
         $root->{id} =~ s/^PML-//;
-        print {$fh} "# sent_id = ", $root->{id}, "\n";
-        print {$fh} "# text = ", $root->{text}, "\n" if exists $root->{text};
-        print {$fh} map "#$_\n", @{ $root->{comment} };
+        # Write the comment lines in the original order if possible.
+        my ($docprinted, $parprinted, $sidprinted, $textprinted);
+        for my $comment (@{ $root->{comment} }) {
+            if ($comment =~ /^\s*newdoc( |$)/ && exists $root->{doc} && !$docprinted) {
+                _serialize_doc_and_par($root, $fh, 'doc');
+                $docprinted = 1;
+            }
+            elsif ($comment =~ /^\s*newpar( |$)/ && exists $root->{par} && !$parprinted) {
+                _serialize_doc_and_par($root, $fh, 'par');
+                $parprinted = 1;
+            }
+            elsif ($comment =~ /^\s*sent_id\s*=/ && !$sidprinted) {
+                print {$fh} "# sent_id = ", $root->{id}, "\n";
+                $sidprinted = 1;
+            } elsif ($comment =~ /^\s*text\s*=/ && !$textprinted) {
+                print {$fh} "# text = ", $root->{text}, "\n" if exists $root->{text};
+                $textprinted = 1;
+            } else {
+                print {$fh} "#$comment\n";
+            }
+        }
+        if (exists $root->{doc} && !$docprinted) {
+            _serialize_doc_and_par($root, $fh, 'doc');
+            $docprinted = 1;
+        }
+        if (exists $root->{par} && !$parprinted) {
+            _serialize_doc_and_par($root, $fh, 'par');
+            $parprinted = 1;
+        }
+        if (!$sidprinted) {
+            print {$fh} "# sent_id = ", $root->{id}, "\n";
+            $sidprinted = 1;
+        }
+        if (exists $root->{text} && !$textprinted) {
+            print {$fh} "# text = ", $root->{text}, "\n";
+            $textprinted = 1;
+        }
         for my $node (sort { $a->{ord} <=> $b->{ord} } $root->descendants) {
             if (my ($mw_idx)
                 = grep $root->{multiword}[$_]{nodes}[0] == $node->{ord},
@@ -135,6 +173,16 @@ sub write {
         print {$fh} "\n";
     }
     return 1
+}
+
+
+sub _serialize_doc_and_par {
+    my ($root, $fh, $attr) = @_;
+    if (exists $root->{$attr}) {
+        print {$fh} "# new$attr";
+        print {$fh} ' id = ', $root->{$attr} if length $root->{$attr};
+        print {$fh} "\n";
+    };
 }
 
 
@@ -169,18 +217,6 @@ sub _create_multiword {
               form => $form}
         )
     ]);
-}
-
-
-sub _serialize_doc_and_par {
-    my ($root, $fh) = @_;
-    for my $attr (qw( doc par )) {
-        if (exists $root->{$attr}) {
-            print {$fh} "# new$attr";
-            print {$fh} ' id = ', $root->{$attr} if length $root->{$attr};
-            print {$fh} "\n";
-        };
-    }
 }
 
 
