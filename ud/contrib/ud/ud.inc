@@ -55,10 +55,15 @@
         my $tree = $doc->tree($tree_no);
         my @nodes = sort { $a->{ord} <=> $b->{ord} } $tree->descendants;
 
-        return [ map { [ $_->{form}, $_ ],
+        my $result = [ map { [ $_->{form}, $_ ],
                        ((grep 'SpaceAfter=No' eq $_, ListV($_->{misc}))
                            ? () : [ ' ' ])
-                     } @nodes ]
+                     } @nodes ];
+        # Add fluent English translation to the value line if it exists.
+        if (exists($tree->{text_en})) {
+            push(@{$result}, ["\n".$tree->{text_en}]);
+        }
+        return $result;
     }
 
 
