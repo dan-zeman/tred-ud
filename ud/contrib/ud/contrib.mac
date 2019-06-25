@@ -296,6 +296,13 @@ sub set_deprel_obl_agent
     set_deprel($this, 'obl:agent');
 }
 
+#insert set_deprel_obl_arg as menu Set deprel to obl:arg
+#bind   set_deprel_obl_arg to key I
+sub set_deprel_obl_arg
+{
+    set_deprel($this, 'obl:arg');
+}
+
 #insert set_deprel_orphan as menu Set deprel to orphan
 #bind   set_deprel_orphan to key O
 sub set_deprel_orphan
